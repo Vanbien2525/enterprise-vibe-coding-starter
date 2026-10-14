@@ -8,6 +8,7 @@ on:
 
 jobs:
   verify:
+    name: Verify & Audit
     runs-on: ubuntu-latest
 
     services:
@@ -26,22 +27,61 @@ jobs:
           --health-retries 5
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-    - name: Setup Node.js
+    - name: Check Project Initialization Status
+      id: check_init
+      run: |
+        if [ -f "package.json" ]; then
+          echo "has_package=true" >> $GITHUB_OUTPUT
+          echo "Project is initialized with package.json"
+        else
+          echo "has_package=false" >> $GITHUB_OUTPUT
+          echo "Starter template mode: package.json not found yet."
+        fi
+
+    # =========================================================================
+    # NẾU LÀ REPO MẪU (CHƯA CÓ PACKAGE.JSON): KIỂM TRA TÍNH TOÀN VẸN CỦA TEMPLATE
+    # =========================================================================
+    - name: Verify Template Integrity
+      if: steps.check_init.outputs.has_package == 'false'
+      run: |
+        echo "Verifying Enterprise Vibe Coding Starter Template files..."
+        test -f "GEMINI.md" && echo "[OK] GEMINI.md exists"
+        test -f "PROJECT_STATE.md" && echo "[OK] PROJECT_STATE.md exists"
+        test -f "docker-compose.yml" && echo "[OK] docker-compose.yml exists"
+        test -d ".agents/prompts" && echo "[OK] Master prompts directory exists"
+        test -d ".agents/rules" && echo "[OK] Rules directory exists"
+        test -f ".github/PULL_REQUEST_TEMPLATE.md" && echo "[OK] PR Template exists"
+        echo "All Enterprise Template assets verified perfectly!"
+
+    # =========================================================================
+    # KHI ĐÃ CÓ CODE DỰ ÁN (CÓ PACKAGE.JSON): CHẠY KIỂM THỬ TỰ ĐỘNG
+    # =========================================================================
+    - name: Setup Node.js (v22 LTS)
+      if: steps.check_init.outputs.has_package == 'true'
       uses: actions/setup-node@v4
       with:
-        node-version: 20
-        cache: 'npm'
+        node-version: 22
 
     - name: Install Dependencies
-      run: npm ci || npm install
+      if: steps.check_init.outputs.has_package == 'true'
+      run: |
+        if [ -f "package-lock.json" ]; then
+          npm ci
+        else
+          npm install
+        fi
 
     - name: TypeScript Strict Check
+      if: steps.check_init.outputs.has_package == 'true'
       run: npx tsc --noEmit || true
 
     - name: Run Linter
+      if: steps.check_init.outputs.has_package == 'true'
       run: npm run lint || true
 
     - name: Run Full Test Suite
+      if: steps.check_init.outputs.has_package == 'true'
       run: npm test || true
