@@ -22,7 +22,13 @@ BƯỚC 2: SAU KHI TÔI TRẢ LỜI, HÃY TỰ ĐỘNG XUẤT RA FILE `SYSTEM_BL
 3. Cây Phân Rã Chức Năng (Functional Decomposition Tree):
    - Liệt kê toàn bộ các nhóm chức năng lớn và các tính năng con từ lúc khởi đầu đến khi hoàn thiện.
 
-4. Khởi Tạo File GEMINI.md, docker-compose.yml và PROJECT_STATE.md để sẵn sàng quản lý tiến độ.
+4. Khởi Tạo Hạ Tầng & File Khai Báo Dependencies Bắt Buộc Cho Jules:
+   - Dựa trên công nghệ đã chốt ở Bước 1, BẮT BUỘC khởi tạo ngay lập tức file quản lý thư viện tại thư mục gốc:
+     + Nếu là Node/TypeScript/Web: Tạo ngay `package.json` (chứa sẵn các scripts: `"test": "vitest run"`, `"lint": "eslint ."`, `"typecheck": "tsc --noEmit"`).
+     + Nếu là Python: Tạo ngay `requirements.txt` hoặc `pyproject.toml`.
+     + Nếu là Go: Tạo ngay `go.mod`.
+   - Khởi tạo đồng thời `GEMINI.md`, `docker-compose.yml` (PostgreSQL) và `PROJECT_STATE.md`.
+   (Đảm bảo GitHub Actions và Google Jules có thể nhận diện môi trường và kích hoạt Sandbox Test được ngay lập tức!)
 
 Sau khi hoàn tất, hãy nhắc tôi bước tiếp theo cần làm gì và cung cấp prompt tiếp theo!
 ```
