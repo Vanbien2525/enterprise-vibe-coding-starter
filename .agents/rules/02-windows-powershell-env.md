@@ -1,41 +1,72 @@
 ---
-description: "Windows OS Architecture and Native PowerShell Execution Standards"
+description: "Universal Windows OS architecture and native PowerShell runtime directives"
 trigger: always_on
 ---
 
 # Windows Operating System & PowerShell Runtime Directives
 
-Hiện tại Agent đang chạy trên môi trường **Windows 10/11**, Shell thực thi mặc định là **PowerShell**.
-Tuyệt đối không sinh ra các cú pháp của Linux Bash gây lỗi runtime.
+The execution environment is **Windows 10/11** running **PowerShell** as the primary interactive shell. 
+Never generate Linux/Bash-specific commands (`export`, `grep`, `cat`, `source`, raw `&&` without verification) that result in runtime execution errors.
 
-## 1. Bảng Chuyển Đổi Cú Pháp (Linux Bash -> Windows PowerShell)
+## 1. Syntax Translation Matrix (Linux/Bash -> Windows PowerShell)
 
-| Thao tác | CẤM DÙNG (Linux / Bash) | BẮT BUỘC DÙNG (Windows PowerShell) |
+| Operation | PROHIBITED (Linux / Bash) | MANDATORY (Windows PowerShell) |
 | :--- | :--- | :--- |
-| **Set biến môi trường** | `export PORT=3000` | `$env:PORT = "3000"` |
-| **Đọc nội dung file** | `cat file.txt` | `Get-Content -Path "file.txt" -Raw` |
-| **Nối nhiều câu lệnh** | `cd app && npm start` | `Set-Location app; npm start` (Dùng `;` thay vì `&&`) |
-| **Tìm kiếm chuỗi text** | `grep "error" app.log` | `Select-String -Path "app.log" -Pattern "error"` |
-| **Tạo thư mục** | `mkdir -p a/b/c` | `New-Item -ItemType Directory -Path "a\b\c" -Force` |
-| **Kiểm tra tồn tại** | `test -f file.txt` | `Test-Path -Path "file.txt"` |
-| **Xóa file an toàn** | `rm file.txt` | `Remove-Item -Path "file.txt" -Force` |
-| **Gọi REST API** | `curl -X POST ...` | `Invoke-RestMethod` hoặc `curl.exe -X POST ...` |
+| **Set Environment Variable** | `export PORT=3000` | `$env:PORT = "3000"` |
+| **Persist / Read Env Var** | `echo $PORT` | `$env:PORT` |
+| **Read File Content** | `cat file.txt` | `Get-Content -Path "file.txt" -Raw -Encoding UTF8` |
+| **Write File Content** | `echo "text" > file.txt` | `Set-Content -Path "file.txt" -Value "text" -Encoding UTF8` |
+| **Append File Content** | `echo "text" >> file.txt` | `Add-Content -Path "file.txt" -Value "text" -Encoding UTF8` |
+| **Command Chaining (Guarded)** | `cd app && npm start` | `Set-Location app; if ($?) { npm start }` (or native `&&` in PS 7+) |
+| **Search String / Regex** | `grep -rn "error" .` | `Select-String -Path ".*" -Pattern "error" -AllMatches` |
+| **Create Directory (Recursive)**| `mkdir -p a/b/c` | `New-Item -ItemType Directory -Path "a\b\c" -Force` |
+| **Check Path Existence** | `test -f file.txt` | `Test-Path -Path "file.txt"` |
+| **Delete File / Directory** | `rm -rf dir` | `Remove-Item -Path "dir" -Recurse -Force` |
+| **Activate Python Virtualenv** | `source venv/bin/activate` | `.\venv\Scripts\Activate.ps1` |
+| **HTTP Request** | `curl -X POST ...` | `curl.exe -X POST ...` or `Invoke-RestMethod` (Avoid alias collision) |
 
-## 2. Quy Tắc Đường Dẫn File (File Paths on Windows)
-- Luôn sử dụng dấu gạch chéo ngược `\` cho Windows path hoặc bọc đường dẫn trong ngoặc kép nếu có khoảng trắng: `"C:\Users\Admin\My Project\file.ts"`.
-- Tuyệt đối không giả định tồn tại các thư mục gốc của Unix như: `/tmp`, `/var`, `/home`, `/etc`.
-- Khi cần tạo thư mục tạm, luôn dùng thư mục scratch được chỉ định hoặc biến `$env:TEMP`.
+## 2. File Encoding, Escaping & Path Safety
+- **Strict UTF-8 Encoding:**
+  - Always enforce `-Encoding UTF8` on `Get-Content`, `Set-Content`, and `Out-File`. Default Windows PowerShell (5.1) outputs in ANSI or UTF-16 LE, which breaks JSON, YAML, `.env` configs, and package manager lockfiles.
+- **Escape Character Rule:**
+  - PowerShell uses the backtick (`` ` ``) as its escape character, NOT the backslash (`\`).
+  - Example: Use `` `n `` for newline, `` `t `` for tab, and `` `" `` for nested double quotes inside expandable strings.
+- **Path Separation Standard:**
+  - **Terminal / CLI Commands:** Use standard Windows backslashes `\` or encapsulate paths with spaces in double quotes: `"C:\Users\Admin\Project\file.ts"`.
+  - **Source Code, JSON, and YAML:** Always use forward slashes `/` (e.g., `"src/components/App.tsx"`) to prevent accidental regex or escape interpretation.
+- **No Unix Root Assumptions:**
+  - Never reference `/tmp`, `/var`, or `/home`. Use the designated project workspace or `$env:TEMP` for temporary artifacts.
 
-## 3. Quản Lý Process & Port Trên Windows
-- **Tìm process đang chiếm giữ Port:**
+## 3. Network, Process & Port Management
+- **Find Process Occupying a Port:**
   ```powershell
-  # Cách 1: Sử dụng Get-NetTCPConnection (Khuyến nghị)
-  Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object OwningProcess, LocalAddress, LocalPort
+  # Primary: Native TCP query
+  Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
 
-  # Cách 2: Sử dụng netstat fallback
+  # Fallback: Netstat filter
   netstat -ano | findstr :3000
   ```
-- **Kết thúc Process an toàn:**
+- **Terminate Process Safely:**
   ```powershell
   Stop-Process -Id <PID> -Force
   ```
+- **Localhost vs 127.0.0.1 Resolution:**
+  - If a local Node.js or Python service fails to connect over localhost due to IPv6 (`::1`) binding differences on Windows, explicitly fall back to `127.0.0.1`.
+
+## 4. Script Execution & ExecutionPolicy Guardrails
+- **Bypass Execution Policy:**
+  - When invoking automated `.ps1` setup or migration scripts, bypass execution restrictions dynamically without modifying global system policy:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\setup.ps1
+  ```
+- **Python Virtualenv Execution Policy:**
+  - If activating a virtual environment fails with `File cannot be loaded because running scripts is disabled`, run within the session:
+  ```powershell
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+  .\venv\Scripts\Activate.ps1
+  ```
+
+## 5. Strict Anti-Patterns (NEVER DO)
+- NEVER generate Linux-specific shell commands (`export`, `source`, `chmod`, `sudo`, `which`, `apt-get`).
+- NEVER run standalone `cd` commands (use the tool's working directory parameter `Cwd` instead).
+- NEVER write files using redirection operators (`>`, `>>`) without specifying `-Encoding UTF8`.
