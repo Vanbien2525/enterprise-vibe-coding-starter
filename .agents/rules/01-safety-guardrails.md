@@ -1,34 +1,59 @@
 ---
-description: "Strict Safety Guardrails, Accidental Data Loss Prevention, and Secret Protection"
+description: "Global Safety Guardrails, Disaster Prevention, and Zero-Leakage Directives"
 trigger: always_on
 ---
 
-# Global Safety & Disaster Prevention Guardrails
+# Global Safety & Disaster Prevention Directives
 
 > [!CAUTION]
-> Mọi thao tác có khả năng xóa dữ liệu, ghi đè không thể phục hồi hoặc gây gián đoạn hệ thống PHẢI được cảnh báo rõ ràng và chỉ thực thi khi có sự đồng ý rõ ràng từ người dùng.
+> Any action carrying the potential for irreversible data loss, history corruption, secret exposure, or production service disruption MUST be guarded with automated fail-safes and requires explicit confirmation in interactive sessions.
 
-## 1. Danh Mục Lệnh Cấm Tự Ý Chạy (Forbidden Destructive Commands)
-Tuyệt đối KHÔNG tự động sinh và chạy ngầm các lệnh sau:
-- **Xóa file/thư mục hàng loạt:**
-  - PowerShell: `Remove-Item -Recurse -Force`, `rmdir /s /q`
-  - Linux syntax: `rm -rf /`, `rm -rf *`
-- **Can thiệp Git phá hủy lịch sử:**
-  - `git push --force`, `git push -f`
-  - `git reset --hard` (khi đang có uncommitted changes)
-  - `git clean -fd` (khi chưa kiểm tra danh sách file untracked)
-- **Phá hủy Cơ Sở Dữ Liệu:**
-  - SQL: `DROP DATABASE`, `DROP TABLE`, `TRUNCATE TABLE`, `DELETE FROM ...` (không có mệnh đề `WHERE`).
-  - Migration CLI: `prisma migrate reset`, `npx drizzle-kit drop`, `alembic downgrade base`.
-- **Dịch vụ Đám mây & Hạ tầng:**
-  - `gcloud projects delete`, `aws s3 rb --force`, `terraform destroy`.
+## 1. Prohibited Destructive Operations (Blacklist & Safe Fallbacks)
+Never generate or autonomously execute destructive commands without verified human consent:
 
-## 2. Bảo Mật Thông Tin Nhạy Cảm & Secrets (Zero-Leakage Policy)
-- **Nghiêm cấm rò rỉ Credentials:**
-  - Không bao giờ in trực tiếp giá trị của các file nhạy cảm ra màn hình (`.env`, `.env.production`, `id_rsa`, `*.pem`, `*.key`, `service-account.json`).
-  - Khi hướng dẫn người dùng tạo file mới, luôn sử dụng placeholder giả lập: `API_KEY="your_api_key_here"`, `DB_PASSWORD="your_secure_password"`.
-- **Kiểm tra .gitignore trước khi tạo file:**
-  - Trước khi tạo file cấu hình chứa secret mới, phải đảm bảo file đó đã được khai báo trong `.gitignore`. Nếu chưa có, lập tức thêm vào `.gitignore`.
+### Filesystem & Workspace:
+- **Prohibited:** Unconstrained recursive file deletions (`rm -rf *`, `Remove-Item -Recurse -Force`, `rmdir /s /q`).
+- **Standard:** Target explicit paths; never execute wildcards against root or workspace parent directories.
 
-## 3. Nguyên Tắc Backup Trước Khi Can Thiệp File Trọng Yếu
-- Khi sửa đổi các file cấu hình gốc của hệ thống hoặc dự án (`docker-compose.yml`, `nginx.conf`, `tsconfig.json`, `settings.json`), nếu phạm vi thay đổi lớn, phải lưu lại bản backup hoặc xác nhận đã commit Git sạch sẽ trước khi thực hiện.
+### Version Control & Git History:
+- **Prohibited:** Destructive history rewrites (`git push --force`, `git push -f`, uninspected `git clean -fd`).
+- **Safe Rollback Mandatory Alternative:** Never run a naked `git reset --hard` on uncommitted or unsaved working trees. Always create an emergency checkpoint branch beforehand:
+  ```powershell
+  # Safe checkpoint pattern
+  git checkout -b "rescue-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+  git add -A
+  git commit -m "chore: emergency checkpoint before rollback"
+  git checkout main
+  ```
+
+### Database DDL/DML & Migrations:
+- **Prohibited:** Unconditional data purges (`DROP DATABASE`, `DROP TABLE`, `TRUNCATE TABLE`, `DELETE/UPDATE` without a `WHERE` clause).
+- **Prohibited Migration CLI Resets:** `prisma migrate reset`, `drizzle-kit drop`, `alembic downgrade base`.
+- **Non-Blocking DDL:** In PostgreSQL, never run raw table-locking index commands on production tables. Always append the concurrent flag:
+  ```sql
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_lookup ON entities (column_name);
+  ```
+
+### Cloud & Infrastructure:
+- **Prohibited:** Infrastructure tear-down commands (`terraform destroy`, `aws s3 rb --force`, `gcloud projects delete`).
+
+## 2. Zero-Leakage Policy & Secret Protection
+- **Credential Exposure Prevention:**
+  - Never print, echo, or stream raw contents of sensitive files (`.env*`, `*.pem`, `*.key`, `id_rsa`, `service-account.json`, `credentials`).
+  - Always supply sanitized placeholders in templates and generated configs: `API_KEY="your_api_key_here"`, `DB_PASSWORD="your_secure_password"`.
+- **Indirect Leakage Prevention:**
+  - **No Plaintext CLI Arguments:** Never pass raw secrets directly in shell arguments or flags (e.g., `docker run -e DB_PASS="secret"`), as they persist in OS process tables and shell history.
+  - **No Environment Dumps:** Strictly forbid commands that output all active environment variables (`printenv`, `env`, `Get-ChildItem env:`).
+  - **Masked HTTP Tracing:** Never enable verbose or payload-tracing flags (`-v`, `--trace`, `--trace-ascii`) in curl or HTTP clients when requests transmit Authorization, Cookie, or bearer token headers.
+- **Pre-Flight Gitignore Audit:**
+  - Before scaffolding or creating any local file that stores secrets, verify that its filename pattern exists within `.gitignore`. If missing, immediately append the rule to `.gitignore` prior to file creation.
+
+## 3. Resilience, Snapshots & Non-Interactive Guardrails
+- **Pre-Modification Snapshots:**
+  - Prior to applying complex modifications to mission-critical infrastructure files (`docker-compose.yml`, `nginx.conf`, `tsconfig.json`, CI pipeline workflows), confirm the working tree is cleanly committed or persist an explicit backup snapshot (`.bak`).
+- **Headless & Non-Interactive CI Fail-Safe:**
+  - In automated, headless, or CI/CD execution environments (e.g., GitHub Actions, Jules, scheduled workers), if an unverified destructive command is encountered without pre-configured bypass flags, abort execution immediately with a non-zero exit code.
+  - Never block or hang terminal pipelines waiting indefinitely for interactive standard input prompts (`[y/N]`).
+- **Supply Chain Hygiene:**
+  - Never pipe untrusted remote shell scripts directly into execution engines (e.g., `curl | bash`, `Invoke-Expression (iwr ...)`).
+  - Always verify third-party package names against official public registries to prevent typosquatting attacks.
